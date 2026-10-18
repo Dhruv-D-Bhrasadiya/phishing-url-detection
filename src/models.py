@@ -1,180 +1,100 @@
 """
-models.py
----------
-Model factory + hyper-parameter search grids for three families:
-  1. Random Forest   (sklearn)
-  2. XGBoost         (xgboost)
-  3. LightGBM        (lightgbm)
-  4. SVM (RBF)       (sklearn)
+Regularised model factory for phishing URL experiments.
 
-Usage
------
-    from src.models import get_model, PARAM_GRIDS, MODEL_NAMES
-
-    model = get_model("rf")
-    grid  = PARAM_GRIDS["rf"]
+Defaults deliberately favour generalisation over memorising the training set.
+Tune only on the training partition; never select settings from the held-out test set.
 """
-
 from __future__ import annotations
 
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier, HistGradientBoostingClassifier
 from sklearn.svm import SVC
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
 from lightgbm import LGBMClassifier
 
-# ---------------------------------------------------------------------------
-# Model keys
-# ---------------------------------------------------------------------------
-
 MODEL_NAMES = {
-    "rf":      "Random Forest",
-    "xgb":     "XGBoost",
-    "lgbm":    "LightGBM",
-    "svm":     "SVM (RBF)",
+    "rf": "Random Forest",
+    "xgb": "XGBoost",
+    "lgbm": "LightGBM",
+    "svm": "SVM (RBF)",
 }
 
-
-# ---------------------------------------------------------------------------
-# Model factory
-# ---------------------------------------------------------------------------
-
-def get_model(key: str, **kwargs):
-    """Return an unfitted estimator for the given model key.
-
-    Parameters
-    ----------
-    key : str
-        One of 'rf', 'xgb', 'lgbm', 'svm'.
-    **kwargs
-        Override default hyper-parameters.
-
-    Returns
-    -------
-    sklearn-compatible estimator
-    """
-    defaults = _DEFAULTS.get(key)
-    if defaults is None:
-        raise ValueError(f"Unknown model key '{key}'. Choose from {list(MODEL_NAMES)}")
-    params = {**defaults, **kwargs}
-
-    if key == "rf":
-        return RandomForestClassifier(**params)
-
-    if key == "xgb":
-        return XGBClassifier(**params)
-
-    if key == "lgbm":
-        return LGBMClassifier(**params)
-
-    if key == "svm":
-        # SVM needs feature scaling
-        return Pipeline([
-            ("scaler", StandardScaler()),
-            ("clf", SVC(**params)),
-        ])
-
-    raise ValueError(key)  # unreachable
-
-
-# ---------------------------------------------------------------------------
-# Default hyper-parameters (reasonable starting points)
-# ---------------------------------------------------------------------------
-
-_DEFAULTS: dict[str, dict] = {
+_DEFAULTS = {
     "rf": dict(
-        n_estimators=300,
-        max_depth=8,               # Constrain tree depth to prevent leaf memorization
-        min_samples_leaf=8,        # Require at least 8 samples per leaf
-        min_samples_split=16,      # Require at least 16 samples to create a split
-        max_features="sqrt",       # Feature bagging (decorrelates trees)
-        n_jobs=-1,
-        random_state=42,
-        class_weight="balanced",
+        n_estimators=250, max_depth=6, min_samples_leaf=12,
+        min_samples_split=24, max_features=0.7, bootstrap=True,
+        max_samples=0.8, n_jobs=-1, random_state=42,
+        class_weight="balanced_subsample",
     ),
     "xgb": dict(
-        n_estimators=300,
-        learning_rate=0.08,
-        max_depth=5,               # Constrain tree depth
-        min_child_weight=4,        # Regularize leaf weight sum
-        gamma=1.0,                 # Minimum loss reduction for split
-        subsample=0.75,            # Sample 75% rows per tree
-        colsample_bytree=0.65,     # Sample 65% features per tree
-        reg_alpha=0.5,             # L1 regularization on weights
-        reg_lambda=1.5,            # L2 regularization on weights
-        random_state=42,
-        n_jobs=-1,
-        verbosity=0,
+        n_estimators=250, learning_rate=0.035, max_depth=3,
+        min_child_weight=8, gamma=1.5, subsample=0.75,
+        colsample_bytree=0.7, reg_alpha=1.0, reg_lambda=5.0,
+        objective="binary:logistic", eval_metric="logloss",
+        random_state=42, n_jobs=-1, verbosity=0,
     ),
     "lgbm": dict(
-        n_estimators=300,
-        learning_rate=0.08,
-        max_depth=5,               # Constrain depth
-        num_leaves=24,             # Limit maximum leaf count
-        min_child_samples=15,      # Minimum samples per leaf
-        subsample=0.75,
-        colsample_bytree=0.65,
-        reg_alpha=0.5,
-        reg_lambda=1.5,
-        random_state=42,
-        n_jobs=-1,
-        verbose=-1,
-        class_weight="balanced",
+        n_estimators=250, learning_rate=0.035, max_depth=4,
+        num_leaves=12, min_child_samples=30, subsample=0.75,
+        subsample_freq=1, colsample_bytree=0.7, reg_alpha=1.0,
+        reg_lambda=5.0, random_state=42, n_jobs=-1,
+        verbosity=-1, class_weight="balanced",
     ),
     "svm": dict(
-        C=1.0,
-        gamma="scale",
-        kernel="rbf",
-        probability=True,
-        random_state=42,
-        class_weight="balanced",
+        C=0.5, gamma="scale", kernel="rbf", probability=True,
+        random_state=42, class_weight="balanced",
     ),
 }
 
+def get_model(key: str, **kwargs):
+    """Return an unfitted estimator with conservative regularisation."""
+    if key not in _DEFAULTS:
+        raise ValueError(f"Unknown model key {key!r}; choose from {list(MODEL_NAMES)}")
+    params = {**_DEFAULTS[key], **kwargs}
+    if key == "rf":
+        return RandomForestClassifier(**params)
+    if key == "xgb":
+        return XGBClassifier(**params)
+    if key == "lgbm":
+        return LGBMClassifier(**params)
+    if key == "svm":
+        return Pipeline([("scaler", StandardScaler()), ("clf", SVC(**params))])
+    raise ValueError(key)
 
-# ---------------------------------------------------------------------------
-# Hyper-parameter search grids (for RandomizedSearchCV)
-# ---------------------------------------------------------------------------
-
-PARAM_GRIDS: dict[str, dict] = {
+PARAM_GRIDS = {
     "rf": {
-        "n_estimators": [150, 250, 350],
-        "max_depth": [5, 7, 9, 12],
-        "min_samples_leaf": [4, 8, 16],
-        "min_samples_split": [8, 16, 24],
-        "max_features": ["sqrt", "log2"],
+        "n_estimators": [150, 250],
+        "max_depth": [4, 6, 8],
+        "min_samples_leaf": [8, 12, 20],
+        "min_samples_split": [16, 24, 40],
+        "max_features": ["sqrt", 0.7],
     },
     "xgb": {
-        "n_estimators": [150, 250, 350],
-        "learning_rate": [0.03, 0.08, 0.12],
-        "max_depth": [4, 5, 6],
-        "min_child_weight": [3, 5, 8],
+        "n_estimators": [100, 180, 250],
+        "learning_rate": [0.02, 0.035, 0.05],
+        "max_depth": [2, 3, 4],
+        "min_child_weight": [5, 8, 12],
         "subsample": [0.65, 0.75, 0.85],
-        "colsample_bytree": [0.55, 0.65, 0.8],
-        "reg_alpha": [0.1, 0.5, 1.0],
-        "reg_lambda": [1.0, 2.0, 5.0],
+        "colsample_bytree": [0.55, 0.7, 0.85],
+        "reg_alpha": [0.5, 1.0, 2.0],
+        "reg_lambda": [3.0, 5.0, 10.0],
+        "gamma": [0.5, 1.5, 3.0],
     },
     "lgbm": {
-        "n_estimators": [150, 250, 350],
-        "learning_rate": [0.03, 0.08, 0.12],
-        "max_depth": [4, 5, 6],
-        "num_leaves": [16, 24, 32],
-        "min_child_samples": [10, 15, 25],
+        "n_estimators": [100, 180, 250],
+        "learning_rate": [0.02, 0.035, 0.05],
+        "max_depth": [3, 4, 5],
+        "num_leaves": [7, 12, 16],
+        "min_child_samples": [20, 30, 50],
         "subsample": [0.65, 0.75, 0.85],
-        "colsample_bytree": [0.55, 0.65, 0.8],
-        "reg_alpha": [0.1, 0.5, 1.0],
-        "reg_lambda": [1.0, 2.0, 5.0],
+        "colsample_bytree": [0.55, 0.7, 0.85],
+        "reg_alpha": [0.5, 1.0, 2.0],
+        "reg_lambda": [3.0, 5.0, 10.0],
     },
     "svm": {
-        "clf__C": [0.1, 1.0, 5.0, 10.0],
-        "clf__gamma": ["scale", "auto", 0.01, 0.05],
+        "clf__C": [0.05, 0.1, 0.5, 1.0],
+        "clf__gamma": ["scale", "auto", 0.001, 0.01],
     },
 }
-
-
-# ---------------------------------------------------------------------------
-# Quick-access list of all model keys
-# ---------------------------------------------------------------------------
-
-ALL_MODELS = list(MODEL_NAMES.keys())
+ALL_MODELS = list(MODEL_NAMES)
