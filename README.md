@@ -210,3 +210,43 @@ jupyter notebook
 - PhiUSIIL Dataset: https://www.kaggle.com/datasets/harisudhan411/phishing-and-legitimate-urls
 - ISCX-URL2016: https://www.unb.ca/cic/datasets/url-2016.html
 - Mohammad et al. (2012) "Intelligent Rule-based Phishing Websites Classification"
+
+---
+
+## Ray Tune: Automated Hyperparameter Experiments
+
+The optional Ray Tune runner searches a bounded hyperparameter space for Random Forest, XGBoost, and LightGBM. It distributes trials across available CPU resources, ranks configurations by validation F1, then refits the best configuration on the training partition and evaluates it once on a held-out test partition. The test set is not used for hyperparameter selection.
+
+Install dependencies (Ray is included in requirements.txt):
+
+```bash
+pip install -r requirements.txt
+```
+
+Run a reproducible search on the PhiUSIIL CSV:
+
+```bash
+python -m src.ray_experiments \
+  --d2 data/raw/phiusiil_phishing_url.csv \
+  --sample-size 20000 \
+  --num-samples 12 \
+  --models rf xgb lgbm \
+  --seed 42
+```
+
+Arguments:
+- `--d2`: input CSV path (defaults to `data/raw/phiusiil_phishing_url.csv`).
+- `--sample-size`: number of rows sampled for a faster run; set `0` to use all rows.
+- `--num-samples`: total number of configurations across the selected model families.
+- `--models`: one or more of `rf`, `xgb`, `lgbm`.
+- `--cpus-per-trial`: CPU resources reserved for each Ray trial (default `2`).
+- `--seed`: random seed for reproducibility.
+
+Ray results are written to `results/ray/`:
+- `metrics/ray_trials.csv`: validation metrics and configuration for every successful trial.
+- `metrics/best_result.json`: best configuration and held-out test metrics.
+- `figures/best_confusion_matrix.png`: held-out test confusion matrix.
+- `reports/ray_experiment_report.md`: metrics and classification report.
+- `ray_storage/`: Ray Tune trial logs and experiment state.
+
+The default search is bounded to 12 configurations and samples up to 20,000 rows to keep the first run manageable. Increase `--num-samples` or set `--sample-size 0` when more compute is available. The Ray runner is separate from `src.experiments`; existing experiments continue to work as before.
