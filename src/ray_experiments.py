@@ -68,7 +68,7 @@ def main():
     ConfusionMatrixDisplay.from_predictions(ytest,pred,labels=[0,1],display_labels=["Legitimate","Phishing"],cmap="Blues",ax=ax,colorbar=False)
     ax.set_title("Ray Tune best trial - "+MODEL_NAMES[key]); fig.tight_layout(); fig.savefig(OUT/"figures/best_confusion_matrix.png",dpi=180); plt.close(fig)
     report=["# Ray Tune Experiment Report","","## Summary",""]+[f"- {k}: {v}" for k,v in metrics.items()]+["","## Classification report","","",classification_report(ytest,pred,target_names=["Legitimate","Phishing"],zero_division=0),"","## Artifacts","- figures/best_confusion_matrix.png","- metrics/ray_trials.csv","- metrics/best_result.json"]
-    (OUT/"reports/ray_experiment_report.md").write_text("\\n".join(report)+"\\n",encoding="utf-8")
+    (OUT/"reports/ray_experiment_report.md").write_text("\n".join(report)+"\n",encoding="utf-8")
     print(trials.head(10).to_string(index=False)); print("Ray outputs:",OUT.resolve())
 
 if __name__=="__main__": main()
